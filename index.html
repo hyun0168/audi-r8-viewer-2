@@ -31,7 +31,6 @@
   .div { width:0.5px; height:18px; background:var(--border); flex-shrink:0; }
   #model-name { font-size:11px; color:var(--text-dim); letter-spacing:0.03em; flex:1; }
   
-  /* 그룹별 버튼 컨테이너 */
   .control-section { display:flex; gap:5px; align-items:center; background:rgba(0,0,0,0.15); padding:3px; border-radius:6px; border:0.5px solid var(--border); }
   .section-label { font-size:9px; color:var(--text-dim); padding:0 6px; letter-spacing:0.05em; font-weight:500; }
   
@@ -113,12 +112,13 @@
   const loadEl = document.getElementById('loading');
   const loadFill = document.getElementById('load-fill');
   
+  // 쉐이더 라이브러리 (STUDIO 톤을 기존보다 살짝 더 밝고 선명하게 업그레이드)
   const shaders = {
-    studio: new THREE.MeshStandardMaterial({ color: 0x5c6d80, metalness: 0.7, roughness: 0.18, side: THREE.DoubleSide }),
-    clay: new THREE.MeshStandardMaterial({ color: 0x9e948a, metalness: 0.1, roughness: 0.55, side: THREE.DoubleSide })
+    studio: new THREE.MeshStandardMaterial({ color: 0x728396, metalness: 0.65, roughness: 0.15, side: THREE.DoubleSide }),
+    clay: new THREE.MeshStandardMaterial({ color: 0xa89f94, metalness: 0.05, roughness: 0.6, side: THREE.DoubleSide })
   };
 
-  // 실시간 수식 매핑 지브라 쉐이더 커스텀 빌드
+  // 실시간 수식 매핑 지브라 쉐이더
   shaders.zebra = new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     vertexShader: `
@@ -137,13 +137,9 @@
       void main() {
         vec3 normal = normalize(vNormal);
         vec3 viewDir = normalize(vViewPosition);
-        
-        // 시선 방향과 법선 벡터 조합을 이용한 원통형 투영 계산
         float angle = dot(normal, vec3(0.0, 1.0, 0.0)) * 15.0 + normal.x * 10.0;
         float stripe = smoothstep(0.4, 0.6, sin(angle * 2.5) * 0.5 + 0.5);
-        
-        // 부드러운 안티에일리언 흑백 라인 연산
-        vec3 col = mix(vec3(0.08), vec3(0.92), stripe);
+        vec3 col = mix(vec3(0.05), vec3(0.95), stripe);
         gl_FragColor = vec4(col, 1.0);
       }
     `
@@ -164,12 +160,11 @@
     renderer.setSize(W, H);
     renderer.outputColorSpace = 'srgb';
 
-    // 정교한 스튜디오 반사판 라이트 구성
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const dl1 = new THREE.DirectionalLight(0xffffff, 1.6);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dl1 = new THREE.DirectionalLight(0xffffff, 1.8); // 메쉬 시인성을 위해 메인 디렉셔널 셋업 광량 강화
     dl1.position.set(8, 18, 8);
     scene.add(dl1);
-    const dl2 = new THREE.DirectionalLight(0xc2daf2, 0.7);
+    const dl2 = new THREE.DirectionalLight(0xc2daf2, 0.8);
     dl2.position.set(-8, 6, -8);
     scene.add(dl2);
 
@@ -197,8 +192,8 @@
 
       model = gltf.scene;
       
-      // 분리된 메쉬들의 불필요한 행렬 갱신을 고정하여 드로우콜 최적화(렉 방지)
-      model.matrixWorldAutoUpdate = false;
+      // 메쉬 렌더 트래킹의 핵심: 자식 오브젝트의 자동 변환을 강제 활성화하여 튕김 오류 차단
+      model.matrixWorldAutoUpdate = true;
 
       applyShaderMode();
 
@@ -210,10 +205,13 @@
       
       model.position.sub(ctr).multiplyScalar(sc);
       model.scale.setScalar(sc);
+      
+      // 씬에 추가하기 전 로컬 매트릭스를 글로벌 노드로 즉시 강제 갱신
       model.updateMatrixWorld(true);
 
       buildPatchLines(model);
       
+      scene.add(model);
       setTimeout(() => { if(loadEl) loadEl.classList.add('hidden'); }, 150);
     });
   }
@@ -234,28 +232,36 @@
     root.traverse(child => {
       if (!child.isMesh) return;
       
-      // 임계 조절 각도를 16도로 타이트하게 설정해 끊김 제어
       const edges = new THREE.EdgesGeometry(child.geometry, 16); 
-      
-      // 정면 및 원근 거리에 따른 선 사라짐 방지 특수 깊이 재질 세팅
       const mat = new THREE.LineBasicMaterial({ 
         color: 0x050608,
         transparent: true,
         opacity: 0.85,
         polygonOffset: true,
-        polygonOffsetFactor: -1.5, // 메쉬 표면보다 아주 약간 앞으로 끌어내려 매핑함
+        polygonOffsetFactor: -1.5,
         polygonOffsetUnits: -1.5
       });
       
       const lines = new THREE.LineSegments(edges, mat);
-      lines.matrixAutoUpdate = false;
-      lines.matrix.copy(child.matrixWorld);
       
-      edgeGroup.add(lines);
+      // [오류 해결의 핵심] 패치 라인을 개별 메쉬의 '자식' 노드로 직접 귀속시켜 위치 이탈을 원천 차단합니다.
+      child.add(lines);
     });
 
-    edgeGroup.visible = showPatch;
-    scene.add(edgeGroup);
+    // 엣지 컨트롤 토글 플래그 연동
+    togglePatchVisibility(showPatch);
+  }
+
+  function togglePatchVisibility(visible) {
+    if (!model) return;
+    model.traverse(child => {
+      if (child.isMesh) {
+        // 자식 노드로 들어간 LineSegments들만 찾아서 가시성 제어
+        child.children.forEach(c => {
+          if (c.isLineSegments) c.visible = visible;
+        });
+      }
+    });
   }
 
   function setupShaderButtons() {
@@ -285,17 +291,6 @@
     requestAnimationFrame(animate);
     if (autoRot && model && !isInteracting) {
       model.rotation.y += 0.0012;
-      model.updateMatrixWorld(true);
-      
-      if (edgeGroup && showPatch) {
-        let i = 0;
-        model.traverse(child => {
-          if (child.isMesh && edgeGroup.children[i]) {
-            edgeGroup.children[i].matrix.copy(child.matrixWorld);
-            i++;
-          }
-        });
-      }
     }
     renderer.render(scene, camera);
   }
@@ -350,11 +345,15 @@
     canvasEl.addEventListener('contextmenu', e => e.preventDefault());
 
     if(btnAuto) btnAuto.addEventListener('click', () => { autoRot = !autoRot; btnAuto.classList.toggle('on', autoRot); });
-    if(btnPatch) btnPatch.addEventListener('click', () => { showPatch = !showPatch; btnPatch.classList.toggle('on', showPatch); if (edgeGroup) edgeGroup.visible = showPatch; });
+    if(btnPatch) btnPatch.addEventListener('click', () => { 
+      showPatch = !showPatch; 
+      btnPatch.classList.toggle('on', showPatch); 
+      togglePatchVisibility(showPatch); 
+    });
     if(btnReset) btnReset.addEventListener('click', () => {
       orb.radius = 4.8; orb.theta = 0.5; orb.phi = 1.05; orb.target.set(0,0,0);
-      if(model) { model.rotation.set(0,0,0); model.updateMatrixWorld(true); }
-      updateCamera(); autoRot = true; if(btnAuto) btnAuto.add('on');
+      if(model) { model.rotation.set(0,0,0); }
+      updateCamera(); autoRot = true; if(btnAuto) btnAuto.classList.add('on');
     });
   }
 
