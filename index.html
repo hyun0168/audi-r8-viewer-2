@@ -8,40 +8,41 @@
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #16171d;
-    --surface: #1d1e26;
-    --border: rgba(255,255,255,0.07);
-    --accent: #b8a898;
-    --accent-dim: rgba(184,168,152,0.45);
-    --text: #ddd8d0;
-    --text-dim: rgba(221,216,208,0.45);
+    --bg: #14151a;
+    --surface: #1b1c24;
+    --border: rgba(255,255,255,0.06);
+    --accent: #c4b5a5;
+    --accent-dim: rgba(196,181,165,0.4);
+    --text: #e3ded7;
+    --text-dim: rgba(227,222,215,0.4);
     --mono: 'DM Mono', monospace;
     --sans: 'Syne', sans-serif;
   }
   html, body { width:100%; height:100%; background:var(--bg); color:var(--text); font-family:var(--mono); overflow:hidden; }
   #app { display:flex; flex-direction:column; height:100vh; }
   #topbar {
-    display:flex; align-items:center; gap:16px;
-    padding:0 20px; height:48px;
+    display:flex; align-items:center; gap:14px;
+    padding:0 20px; height:52px;
     border-bottom:0.5px solid var(--border);
     background:var(--surface);
     flex-shrink:0; z-index:20;
   }
-  #logo { font-family:var(--sans); font-size:12px; font-weight:700; letter-spacing:0.18em; color:var(--accent); white-space:nowrap; }
-  .div { width:0.5px; height:20px; background:var(--border); flex-shrink:0; }
-  #model-name { font-size:11px; color:var(--text-dim); letter-spacing:0.05em; flex:1; }
-  #btn-group { display:flex; gap:6px; align-items:center; }
+  #logo { font-family:var(--sans); font-size:12px; font-weight:700; letter-spacing:0.2em; color:var(--accent); white-space:nowrap; }
+  .div { width:0.5px; height:18px; background:var(--border); flex-shrink:0; }
+  #model-name { font-size:11px; color:var(--text-dim); letter-spacing:0.03em; flex:1; }
+  
+  /* 그룹별 버튼 컨테이너 */
+  .control-section { display:flex; gap:5px; align-items:center; background:rgba(0,0,0,0.15); padding:3px; border-radius:6px; border:0.5px solid var(--border); }
+  .section-label { font-size:9px; color:var(--text-dim); padding:0 6px; letter-spacing:0.05em; font-weight:500; }
+  
   .btn {
-    height:28px; padding:0 12px;
-    background:transparent;
-    border:0.5px solid rgba(255,255,255,0.1);
-    border-radius:5px;
-    color:var(--text-dim);
-    font-family:var(--mono); font-size:10px; letter-spacing:0.1em;
-    cursor:pointer; transition:all 0.15s; white-space:nowrap;
+    height:26px; padding:0 10px;
+    background:transparent; border:none; border-radius:4px;
+    color:var(--text-dim); font-family:var(--mono); font-size:10px; letter-spacing:0.05em;
+    cursor:pointer; transition:all 0.12s ease; white-space:nowrap;
   }
-  .btn:hover { background:rgba(255,255,255,0.06); color:var(--text); border-color:rgba(255,255,255,0.18); }
-  .btn.on { background:rgba(184,168,152,0.12); border-color:var(--accent-dim); color:var(--accent); }
+  .btn:hover { background:rgba(255,255,255,0.04); color:var(--text); }
+  .btn.on { background:rgba(196,181,165,0.15); color:var(--accent); font-weight:500; }
   
   #canvas-wrap { position:relative; flex:1; overflow:hidden; }
   #three-canvas { display:block; width:100%; height:100%; cursor:grab; }
@@ -49,18 +50,17 @@
   
   #info-overlay {
     position:absolute; bottom:20px; left:20px;
-    pointer-events:none; display:flex; flex-direction:column; gap:4px;
-    font-size:10px; line-height:1.6; color:rgba(221,216,208,0.35); z-index:10;
+    pointer-events:none; display:flex; flex-direction:column; gap:3px;
+    font-size:10px; line-height:1.5; color:rgba(227,222,215,0.3); z-index:10;
   }
-
   #loading {
     position:absolute; inset:0; background:var(--bg);
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; z-index:15;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; z-index:15;
   }
   #loading.hidden { display:none !important; }
-  #load-title { font-family:var(--sans); font-size:16px; font-weight:700; letter-spacing:0.1em; color:var(--text); }
-  #load-track { width:200px; height:1.5px; background:rgba(255,255,255,0.07); border-radius:2px; overflow:hidden; }
-  #load-fill { height:100%; background:var(--accent); width:0%; transition:width 0.2s; border-radius:2px; }
+  #load-title { font-family:var(--sans); font-size:15px; font-weight:700; letter-spacing:0.12em; color:var(--text); }
+  #load-track { width:180px; height:1.5px; background:rgba(255,255,255,0.06); border-radius:1px; overflow:hidden; }
+  #load-fill { height:100%; background:var(--accent); width:0%; transition:width 0.15s; }
 </style>
 </head>
 <body>
@@ -68,23 +68,32 @@
   <div id="topbar">
     <div id="logo">ALIAS 3D VIEWER</div>
     <div class="div"></div>
-    <div id="model-name">Audi R8 — Surface Boundary Inspection Mode</div>
-    <div id="btn-group">
+    <div id="model-name">Audi R8 — Studio Inspection Grid</div>
+    
+    <div class="control-section">
+      <span class="section-label">SHADING</span>
+      <button class="btn on" id="sh-studio">STUDIO</button>
+      <button class="btn" id="sh-clay">CLAY</button>
+      <button class="btn" id="sh-zebra">ZEBRA</button>
+    </div>
+
+    <div class="control-section">
       <button class="btn on" id="btn-auto">AUTO ROT</button>
       <button class="btn" id="btn-patch">PATCH LINE</button>
       <button class="btn" id="btn-reset">RESET</button>
     </div>
   </div>
+  
   <div id="canvas-wrap">
     <canvas id="three-canvas"></canvas>
     <div id="info-overlay">
       <div>좌클릭 드래그 — 카메라 회전 (TURN)</div>
       <div>우클릭 드래그 / 휠 스크롤 — 확대 및 축소 (ZOOM)</div>
       <div>마우스 휠 클릭 드래그 — 화면 평면 이동 (PANNING)</div>
-      <div>오른쪽 상단 — 서피스 데이터 검증 메뉴 (INSPECTION OSD)</div>
+      <div>상단 오버레이 메뉴 — 실시간 서피스 흐름 검증 매칭 (CLAY / ZEBRA / STUDIO)</div>
     </div>
     <div id="loading">
-      <div id="load-title">AUDI R8</div>
+      <div id="load-title">LOADING ALIAS DATA</div>
       <div id="load-track"><div id="load-fill"></div></div>
     </div>
   </div>
@@ -97,36 +106,71 @@
 (function () {
   let scene, camera, renderer, model, edgeGroup;
   let autoRot = true, showPatch = false, isInteracting = false;
-  
+  let currentShaderMode = 'studio'; 
+
   const canvasEl = document.getElementById('three-canvas');
   const wrap = document.getElementById('canvas-wrap');
   const loadEl = document.getElementById('loading');
   const loadFill = document.getElementById('load-fill');
-  const btnAuto = document.getElementById('btn-auto');
-  const btnPatch = document.getElementById('btn-patch');
-  const btnReset = document.getElementById('btn-reset');
+  
+  const shaders = {
+    studio: new THREE.MeshStandardMaterial({ color: 0x5c6d80, metalness: 0.7, roughness: 0.18, side: THREE.DoubleSide }),
+    clay: new THREE.MeshStandardMaterial({ color: 0x9e948a, metalness: 0.1, roughness: 0.55, side: THREE.DoubleSide })
+  };
 
-  const orb = { theta: 0.5, phi: 1.05, radius: 5, target: new THREE.Vector3(0, 0, 0) };
+  // 실시간 수식 매핑 지브라 쉐이더 커스텀 빌드
+  shaders.zebra = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      void main() {
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vNormal = normalize(normalMatrix * normal);
+        vViewPosition = -mvPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      void main() {
+        vec3 normal = normalize(vNormal);
+        vec3 viewDir = normalize(vViewPosition);
+        
+        // 시선 방향과 법선 벡터 조합을 이용한 원통형 투영 계산
+        float angle = dot(normal, vec3(0.0, 1.0, 0.0)) * 15.0 + normal.x * 10.0;
+        float stripe = smoothstep(0.4, 0.6, sin(angle * 2.5) * 0.5 + 0.5);
+        
+        // 부드러운 안티에일리언 흑백 라인 연산
+        vec3 col = mix(vec3(0.08), vec3(0.92), stripe);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `
+  });
+
+  const orb = { theta: 0.5, phi: 1.05, radius: 4.8, target: new THREE.Vector3(0, 0, 0) };
 
   function init() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x16171d);
+    scene.background = new THREE.Color(0x14151a);
     
-    const W = wrap.clientWidth || window.innerWidth;
-    const H = wrap.clientHeight || window.innerHeight;
-    camera = new THREE.PerspectiveCamera(38, W / H, 0.01, 2000);
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight;
+    camera = new THREE.PerspectiveCamera(36, W / H, 0.01, 1000);
 
-    renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(W, H);
     renderer.outputColorSpace = 'srgb';
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-    const dl1 = new THREE.DirectionalLight(0xffffff, 1.4);
-    dl1.position.set(6, 15, 6);
+    // 정교한 스튜디오 반사판 라이트 구성
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const dl1 = new THREE.DirectionalLight(0xffffff, 1.6);
+    dl1.position.set(8, 18, 8);
     scene.add(dl1);
-    const dl2 = new THREE.DirectionalLight(0xaec5dd, 0.55);
-    dl2.position.set(-6, 4, -6);
+    const dl2 = new THREE.DirectionalLight(0xc2daf2, 0.7);
+    dl2.position.set(-8, 6, -8);
     scene.add(dl2);
 
     updateCamera();
@@ -134,12 +178,13 @@
     
     window.addEventListener('resize', onResize);
     bindControls();
+    setupShaderButtons();
     loadGLB('audi.glb');
   }
 
   function loadGLB(path) {
     let prog = 0;
-    const ticker = setInterval(() => { prog = Math.min(prog + 5, 90); if(loadFill) loadFill.style.width = prog + '%'; }, 80);
+    const ticker = setInterval(() => { prog = Math.min(prog + 4, 85); if(loadFill) loadFill.style.width = prog + '%'; }, 60);
 
     const loader = new THREE.GLTFLoader();
     const dracoLoader = new THREE.DRACOLoader();
@@ -151,17 +196,11 @@
       if(loadFill) loadFill.style.width = '100%';
 
       model = gltf.scene;
+      
+      // 분리된 메쉬들의 불필요한 행렬 갱신을 고정하여 드로우콜 최적화(렉 방지)
+      model.matrixWorldAutoUpdate = false;
 
-      model.traverse(child => {
-        if (child.isMesh) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: 0x415366,
-            metalness: 0.65,
-            roughness: 0.22,
-            side: THREE.DoubleSide
-          });
-        }
-      });
+      applyShaderMode();
 
       const box = new THREE.Box3().setFromObject(model);
       const ctr = box.getCenter(new THREE.Vector3());
@@ -171,14 +210,20 @@
       
       model.position.sub(ctr).multiplyScalar(sc);
       model.scale.setScalar(sc);
-      scene.add(model);
+      model.updateMatrixWorld(true);
 
-      // 다중 오브젝트 구조에 최적화된 패치 라인 생성 함수 호출
       buildPatchLines(model);
       
-      setTimeout(() => { if(loadEl) loadEl.classList.add('hidden'); }, 200);
-    }, xhr => {
-      if (xhr.total && loadFill) { prog = Math.round(xhr.loaded / xhr.total * 90); loadFill.style.width = prog + '%'; }
+      setTimeout(() => { if(loadEl) loadEl.classList.add('hidden'); }, 150);
+    });
+  }
+
+  function applyShaderMode() {
+    if (!model) return;
+    model.traverse(child => {
+      if (child.isMesh) {
+        child.material = shaders[currentShaderMode];
+      }
     });
   }
 
@@ -189,12 +234,20 @@
     root.traverse(child => {
       if (!child.isMesh) return;
       
-      // 분리된 오브젝트의 경계를 완벽히 추적하기 위해 임계 임계각을 15도로 정밀화
-      const edges = new THREE.EdgesGeometry(child.geometry, 15); 
-      const mat = new THREE.LineBasicMaterial({ color: 0x07090f });
-      const lines = new THREE.LineSegments(edges, mat);
+      // 임계 조절 각도를 16도로 타이트하게 설정해 끊김 제어
+      const edges = new THREE.EdgesGeometry(child.geometry, 16); 
       
-      // 개별 오브젝트의 트랜스폼 매트릭스를 그대로 라인 그룹에 바인딩
+      // 정면 및 원근 거리에 따른 선 사라짐 방지 특수 깊이 재질 세팅
+      const mat = new THREE.LineBasicMaterial({ 
+        color: 0x050608,
+        transparent: true,
+        opacity: 0.85,
+        polygonOffset: true,
+        polygonOffsetFactor: -1.5, // 메쉬 표면보다 아주 약간 앞으로 끌어내려 매핑함
+        polygonOffsetUnits: -1.5
+      });
+      
+      const lines = new THREE.LineSegments(edges, mat);
       lines.matrixAutoUpdate = false;
       lines.matrix.copy(child.matrixWorld);
       
@@ -203,6 +256,18 @@
 
     edgeGroup.visible = showPatch;
     scene.add(edgeGroup);
+  }
+
+  function setupShaderButtons() {
+    const modes = ['studio', 'clay', 'zebra'];
+    modes.forEach(mode => {
+      document.getElementById(`sh-${mode}`).addEventListener('click', e => {
+        modes.forEach(m => document.getElementById(`sh-${m}`).classList.remove('on'));
+        e.target.classList.add('on');
+        currentShaderMode = mode;
+        applyShaderMode();
+      });
+    });
   }
 
   function updateCamera() {
@@ -219,12 +284,16 @@
   function animate() {
     requestAnimationFrame(animate);
     if (autoRot && model && !isInteracting) {
-      model.rotation.y += 0.0015;
-      // 다중 매트릭스 동기화 방식으로 회전 제어 변환
+      model.rotation.y += 0.0012;
+      model.updateMatrixWorld(true);
+      
       if (edgeGroup && showPatch) {
-        edgeGroup.children.forEach((line, i) => {
-          let mesh = model.children[i];
-          if(mesh) line.matrix.copy(mesh.matrixWorld);
+        let i = 0;
+        model.traverse(child => {
+          if (child.isMesh && edgeGroup.children[i]) {
+            edgeGroup.children[i].matrix.copy(child.matrixWorld);
+            i++;
+          }
         });
       }
     }
@@ -232,22 +301,21 @@
   }
 
   function onResize() {
-    const W = wrap.clientWidth || window.innerWidth;
-    const H = wrap.clientHeight || window.innerHeight;
+    const W = wrap.clientWidth; const H = wrap.clientHeight;
     camera.aspect = W / H;
     camera.updateProjectionMatrix();
     renderer.setSize(W, H);
   }
 
   function bindControls() {
-    let mode = 0; // 1:회전, 2:패닝, 3:줌
-    let px = 0, py = 0;
+    let mode = 0; let px = 0, py = 0;
+    const btnAuto = document.getElementById('btn-auto');
+    const btnPatch = document.getElementById('btn-patch');
+    const btnReset = document.getElementById('btn-reset');
     
     canvasEl.addEventListener('mousedown', e => {
-      e.preventDefault();
-      isInteracting = true;
+      e.preventDefault(); isInteracting = true;
       px = e.clientX; py = e.clientY;
-      
       if (e.button === 0) { mode = 1; autoRot = false; if(btnAuto) btnAuto.classList.remove('on'); }
       else if (e.button === 1) { mode = 2; }
       else if (e.button === 2) { mode = 3; }
@@ -261,40 +329,34 @@
       px = e.clientX; py = e.clientY;
       
       if (mode === 1) { 
-        orb.theta -= dx * 0.006;
-        orb.phi = Math.max(0.05, Math.min(Math.PI - 0.05, orb.phi - dy * 0.006));
+        orb.theta -= dx * 0.005;
+        orb.phi = Math.max(0.05, Math.min(Math.PI - 0.05, orb.phi - dy * 0.005));
       } else if (mode === 2) { 
-        const factor = orb.radius * 0.0015;
-        const offset = new THREE.Vector3(-dx * factor, dy * factor, 0);
-        offset.applyQuaternion(camera.quaternion);
+        const factor = orb.radius * 0.0012;
+        const offset = new THREE.Vector3(-dx * factor, dy * factor, 0).applyQuaternion(camera.quaternion);
         orb.target.add(offset);
       } else if (mode === 3) { 
-        orb.radius = Math.max(1.0, Math.min(30, orb.radius + dy * 0.015));
+        orb.radius = Math.max(0.8, Math.min(25, orb.radius + dy * 0.012));
       }
       updateCamera();
     });
     
     canvasEl.addEventListener('wheel', e => {
       e.preventDefault();
-      orb.radius = Math.max(1.0, Math.min(30, orb.radius + e.deltaY * 0.003));
+      orb.radius = Math.max(0.8, Math.min(25, orb.radius + e.deltaY * 0.0025));
       updateCamera();
     }, { passive: false });
 
     canvasEl.addEventListener('contextmenu', e => e.preventDefault());
-  }
 
-  if(btnAuto) btnAuto.addEventListener('click', () => { autoRot = !autoRot; btnAuto.classList.toggle('on', autoRot); });
-  if(btnPatch) btnPatch.addEventListener('click', () => {
-    showPatch = !showPatch;
-    btnPatch.classList.toggle('on', showPatch);
-    if (edgeGroup) edgeGroup.visible = showPatch;
-  });
-  if(btnReset) btnReset.addEventListener('click', () => {
-    orb.radius = 5; orb.theta = 0.5; orb.phi = 1.05; orb.target.set(0,0,0);
-    if(model) model.rotation.set(0,0,0);
-    updateCamera();
-    autoRot = true; if(btnAuto) btnAuto.classList.add('on');
-  });
+    if(btnAuto) btnAuto.addEventListener('click', () => { autoRot = !autoRot; btnAuto.classList.toggle('on', autoRot); });
+    if(btnPatch) btnPatch.addEventListener('click', () => { showPatch = !showPatch; btnPatch.classList.toggle('on', showPatch); if (edgeGroup) edgeGroup.visible = showPatch; });
+    if(btnReset) btnReset.addEventListener('click', () => {
+      orb.radius = 4.8; orb.theta = 0.5; orb.phi = 1.05; orb.target.set(0,0,0);
+      if(model) { model.rotation.set(0,0,0); model.updateMatrixWorld(true); }
+      updateCamera(); autoRot = true; if(btnAuto) btnAuto.add('on');
+    });
+  }
 
   init();
 })();
