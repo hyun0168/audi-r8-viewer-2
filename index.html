@@ -42,8 +42,18 @@
   }
   .btn:hover { background:rgba(255,255,255,0.06); color:var(--text); border-color:rgba(255,255,255,0.18); }
   .btn.on { background:rgba(184,168,152,0.12); border-color:var(--accent-dim); color:var(--accent); }
+  
   #canvas-wrap { position:relative; flex:1; overflow:hidden; }
-  #three-canvas { display:block; width:100%; height:100%; }
+  #three-canvas { display:block; width:100%; height:100%; cursor:grab; }
+  #three-canvas:active { cursor:grabbing; }
+  
+  /* 조작 가이드 오버레이 */
+  #info-overlay {
+    position:absolute; bottom:20px; left:20px;
+    pointer-events:none; display:flex; flex-direction:column; gap:4px;
+    font-size:10px; line-height:1.6; color:rgba(221,216,208,0.35); z-index:10;
+  }
+
   #loading {
     position:absolute; inset:0; background:var(--bg);
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; z-index:15;
@@ -68,6 +78,12 @@
   </div>
   <div id="canvas-wrap">
     <canvas id="three-canvas"></canvas>
+    <div id="info-overlay">
+      <div>좌클릭 드래그 — 카메라 회전 (TURN)</div>
+      <div>우클릭 드래그 / 휠 스크롤 — 확대 및 축소 (ZOOM)</div>
+      <div>마우스 휠 클릭 드래그 — 화면 평면 이동 (PANNING)</div>
+      <div>오른쪽 상단 — 서피스 데이터 검증 메뉴 (INSPECTION OSD)</div>
+    </div>
     <div id="loading">
       <div id="load-title">AUDI R8</div>
       <div id="load-track"><div id="load-fill"></div></div>
@@ -82,6 +98,7 @@
 (function () {
   let scene, camera, renderer, model, edgeGroup;
   let autoRot = true, showPatch = false, isInteracting = false;
+  
   const canvasEl = document.getElementById('three-canvas');
   const wrap = document.getElementById('canvas-wrap');
   const loadEl = document.getElementById('loading');
@@ -90,7 +107,13 @@
   const btnPatch = document.getElementById('btn-patch');
   const btnReset = document.getElementById('btn-reset');
 
-  const orb = { theta: 0.5, phi: 1.05, radius: 5, target: new THREE.Vector3(0, 0, 0) };
+  // 카메라 제어 구조체 (Target 포함)
+  const orb = { 
+    theta: 0.5, 
+    phi: 1.05, 
+    radius: 5, 
+    target: new THREE.Vector3(0, 0, 0) 
+  };
 
   function init() {
     scene = new THREE.Scene();
@@ -98,27 +121,27 @@
     
     const W = wrap.clientWidth || window.innerWidth;
     const H = wrap.clientHeight || window.innerHeight;
-    camera = new THREE.PerspectiveCamera(40, W / H, 0.01, 2000);
+    camera = new THREE.PerspectiveCamera(38, W / H, 0.01, 2000);
 
     renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(W, H);
     renderer.outputColorSpace = 'srgb';
 
-    // 기본 조명 셋업
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dl1 = new THREE.DirectionalLight(0xffffff, 1.2);
-    dl1.position.set(5, 12, 5);
+    // 스튜디오급 라이팅 구성 (하이라이트 흐름 확인용)
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dl1 = new THREE.DirectionalLight(0xffffff, 1.4);
+    dl1.position.set(6, 15, 6);
     scene.add(dl1);
-    const dl2 = new THREE.DirectionalLight(0xaec5dd, 0.6);
-    dl2.position.set(-5, 4, -5);
+    const dl2 = new THREE.DirectionalLight(0xaec5dd, 0.5);
+    dl2.position.set(-6, 4, -6);
     scene.add(dl2);
 
     updateCamera();
     animate();
     
     window.addEventListener('resize', onResize);
-    bindOrbit();
+    bindControls();
     loadGLB('audi.glb');
   }
 
@@ -137,30 +160,30 @@
 
       model = gltf.scene;
 
-      // ⚡ 모델 컬러 및 재질 매트하게 세팅 (알리아스 쉐이딩 감성)
+      // 지브라/클레이 느낌의 세련된 하이라이트 재질 구현
       model.traverse(child => {
         if (child.isMesh) {
           child.material = new THREE.MeshStandardMaterial({
-            color: 0x486480,       // 깔끔한 스틸 블루 톤
-            metalness: 0.5,
-            roughness: 0.3,
+            color: 0x4a5866,
+            metalness: 0.6,
+            roughness: 0.25,
             side: THREE.DoubleSide
           });
         }
       });
 
-      // ⚡ 자동 정렬 및 크기 최적화 로직
+      // 스케일 자동화 및 원점 빌드
       const box = new THREE.Box3().setFromObject(model);
       const ctr = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       const maxD = Math.max(size.x, size.y, size.z);
-      const sc = 3.5 / maxD;
+      const sc = 3.6 / maxD;
       
       model.position.sub(ctr).multiplyScalar(sc);
       model.scale.setScalar(sc);
       scene.add(model);
 
-      // ⚡ [핵심] 지저분한 폴리곤 메쉬를 거르고 깨끗한 서피스 패치 라인만 빌드
+      // 패치 외곽선 생성
       buildPatchLines(model);
       
       setTimeout(() => { if(loadEl) loadEl.classList.add('hidden'); }, 200);
@@ -176,16 +199,11 @@
     root.traverse(child => {
       if (!child.isMesh) return;
       
-      // 임계각각(Threshold Angle)을 20~30도 수준으로 주어 압축으로 자잘하게 쪼개진 평면 폴리곤 선은 필터링하고,
-      // 실제로 꺾이는 알리아스 데이터 고유의 서피스 경계(Boundary)만 추출합니다.
-      const edges = new THREE.EdgesGeometry(child.geometry, 24); 
-      
-      const mat = new THREE.LineBasicMaterial({ 
-        color: 0x07090d, // 선명하고 명확한 서피스 경계선 색상
-        linewidth: 1
-      });
-      
+      // 임계 각도를 18도로 살짝 낮춰서 끊어지는 패치 엣지선 연결성 보정
+      const edges = new THREE.EdgesGeometry(child.geometry, 18); 
+      const mat = new THREE.LineBasicMaterial({ color: 0x0a0d14 });
       const lines = new THREE.LineSegments(edges, mat);
+      
       lines.position.copy(child.position);
       lines.rotation.copy(child.rotation);
       lines.scale.copy(child.scale);
@@ -202,6 +220,7 @@
   function updateCamera() {
     const { theta, phi, radius, target } = orb;
     const sp = Math.sin(phi);
+    
     camera.position.set(
       radius * sp * Math.sin(theta) + target.x,
       radius * Math.cos(phi) + target.y,
@@ -213,7 +232,7 @@
   function animate() {
     requestAnimationFrame(animate);
     if (autoRot && model && !isInteracting) {
-      model.rotation.y += 0.002;
+      model.rotation.y += 0.0015;
       if (edgeGroup) edgeGroup.rotation.y = model.rotation.y;
     }
     renderer.render(scene, camera);
@@ -227,30 +246,57 @@
     renderer.setSize(W, H);
   }
 
-  function bindOrbit() {
-    let down = false; let px = 0, py = 0;
+  // 🛠️ 마우스 올인원 컨트롤 바인딩 (회전 / 패닝 / 우클릭 줌)
+  function bindControls() {
+    let mode = 0; // 1:회전(좌클), 2:패닝(휠클), 3:줌(우클)
+    let px = 0, py = 0;
     
     canvasEl.addEventListener('mousedown', e => {
-      down = true; isInteracting = true;
-      px = e.clientX; py = e.clientY;
-      if (e.button === 0) { autoRot = false; if(btnAuto) btnAuto.classList.remove('on'); }
-    });
-    
-    window.addEventListener('mouseup', () => { down = false; isInteracting = false; });
-    
-    canvasEl.addEventListener('mousemove', e => {
-      if (!down) return;
-      const dx = e.clientX - px, dy = e.clientY - py;
+      e.preventDefault();
+      isInteracting = true;
       px = e.clientX; py = e.clientY;
       
-      orb.theta -= dx * 0.007;
-      orb.phi = Math.max(0.05, Math.min(Math.PI - 0.05, orb.phi - dy * 0.007));
+      if (e.button === 0) { // 좌클릭 (회전)
+        mode = 1;
+        autoRot = false; 
+        if(btnAuto) btnAuto.classList.remove('on');
+      } else if (e.button === 1) { // 휠 매직클릭 (패닝)
+        mode = 2;
+      } else if (e.button === 2) { // 우클릭 (줌)
+        mode = 3;
+      }
+    });
+    
+    window.addEventListener('mouseup', () => { mode = 0; isInteracting = false; });
+    
+    canvasEl.addEventListener('mousemove', e => {
+      if (mode === 0) return;
+      const dx = e.clientX - px;
+      const dy = e.clientY - py;
+      px = e.clientX; py = e.clientY;
+      
+      if (mode === 1) { 
+        // 1. 회전
+        orb.theta -= dx * 0.006;
+        orb.phi = Math.max(0.05, Math.min(Math.PI - 0.05, orb.phi - dy * 0.006));
+      } else if (mode === 2) { 
+        // 2. 패닝 (중간 버튼 드래그 이동)
+        const factor = orb.radius * 0.0015;
+        // 카메라 축 기준 수평/수직 벡터 계산하여 타겟 이동
+        const offset = new THREE.Vector3(-dx * factor, dy * factor, 0);
+        offset.applyQuaternion(camera.quaternion);
+        orb.target.add(offset);
+      } else if (mode === 3) { 
+        // 3. 우클릭 드래그 줌인아웃
+        orb.radius = Math.max(1.0, Math.min(30, orb.radius + dy * 0.015));
+      }
       updateCamera();
     });
     
+    // 기존 마우스 휠 스크롤 줌도 병행 유지
     canvasEl.addEventListener('wheel', e => {
       e.preventDefault();
-      orb.radius = Math.max(1.5, Math.min(20, orb.radius - e.deltaY * -0.003));
+      orb.radius = Math.max(1.0, Math.min(30, orb.radius + e.deltaY * 0.003));
       updateCamera();
     }, { passive: false });
 
