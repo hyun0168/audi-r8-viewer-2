@@ -6,29 +6,143 @@
 <title>Audi R8 — ALIAS 3D VIEWER</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700&display=swap');
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root { --bg: #16171d; --surface: #1d1e26; --border: rgba(255,255,255,0.07); --accent: #b8a898; --text: #ddd8d0; --text-dim: rgba(221,216,208,0.45); }
-  html, body { width:100%; height:100%; background:var(--bg); color:var(--text); font-family: 'DM Mono', monospace; overflow:hidden; }
+
+  :root {
+    --bg: #16171d;
+    --surface: #1d1e26;
+    --border: rgba(255,255,255,0.07);
+    --accent: #b8a898;
+    --accent-dim: rgba(184,168,152,0.45);
+    --text: #ddd8d0;
+    --text-dim: rgba(221,216,208,0.45);
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  html, body { width:100%; height:100%; background:var(--bg); color:var(--text); font-family:var(--mono); overflow:hidden; }
+
   #app { display:flex; flex-direction:column; height:100vh; }
-  #topbar { display:flex; align-items:center; gap:16px; padding:0 20px; height:48px; border-bottom:0.5px solid var(--border); background:var(--surface); }
-  #logo { font-family: 'Syne', sans-serif; font-size:12px; font-weight:700; color:var(--accent); letter-spacing:0.18em; }
-  #btn-group { display:flex; gap:6px; margin-left:auto; }
-  .btn { height:28px; padding:0 12px; background:transparent; border:0.5px solid rgba(255,255,255,0.1); border-radius:5px; color:var(--text-dim); font-size:10px; cursor:pointer; }
-  .btn.on { background:rgba(184,168,152,0.12); border-color:rgba(184,168,152,0.45); color:var(--accent); }
-  #canvas-wrap { flex:1; position:relative; }
+
+  #topbar {
+    display:flex; align-items:center; gap:16px;
+    padding:0 20px; height:48px;
+    border-bottom:0.5px solid var(--border);
+    background:var(--surface);
+    flex-shrink:0; z-index:20;
+  }
+
+  #logo { font-family:var(--sans); font-size:12px; font-weight:700; letter-spacing:0.18em; color:var(--accent); white-space:nowrap; }
+  .div  { width:0.5px; height:20px; background:var(--border); flex-shrink:0; }
+  #model-name { font-size:11px; color:var(--text-dim); letter-spacing:0.05em; flex:1; }
+
+  #btn-group { display:flex; gap:6px; align-items:center; }
+
+  .btn {
+    height:28px; padding:0 12px;
+    background:transparent;
+    border:0.5px solid rgba(255,255,255,0.1);
+    border-radius:5px;
+    color:var(--text-dim);
+    font-family:var(--mono); font-size:10px; letter-spacing:0.1em;
+    cursor:pointer; transition:all 0.15s; white-space:nowrap;
+  }
+  .btn:hover { background:rgba(255,255,255,0.06); color:var(--text); border-color:rgba(255,255,255,0.18); }
+  .btn.on   { background:rgba(184,168,152,0.12); border-color:var(--accent-dim); color:var(--accent); }
+
+  #env-dots { display:flex; gap:7px; align-items:center; margin-left:4px; }
+  .edot {
+    width:13px; height:13px; border-radius:50%;
+    cursor:pointer; border:1.5px solid transparent; transition:border-color 0.15s; flex-shrink:0;
+  }
+  .edot:hover, .edot.on { border-color:var(--accent); }
+
+  #canvas-wrap { position:relative; flex:1; overflow:hidden; }
   #three-canvas { display:block; width:100%; height:100%; }
+
+  /* LOADING */
+  #loading {
+    position:absolute; inset:0;
+    background:var(--bg);
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px;
+    z-index:15;
+  }
+  #loading.hidden { display:none !important; }
+  #load-title { font-family:var(--sans); font-size:16px; font-weight:700; letter-spacing:0.1em; color:var(--text); }
+  #load-label { font-size:10px; letter-spacing:0.12em; color:var(--text-dim); }
+  #load-track { width:200px; height:1.5px; background:rgba(255,255,255,0.07); border-radius:2px; overflow:hidden; }
+  #load-fill  { height:100%; background:var(--accent); width:0%; transition:width 0.2s; border-radius:2px; }
+
+  #hud {
+    position:absolute; bottom:16px; left:18px;
+    font-size:10px; color:rgba(184,168,152,0.35);
+    letter-spacing:0.05em; line-height:2.2;
+    pointer-events:none; z-index:5;
+  }
+
+  #err {
+    position:absolute; bottom:50px; left:50%; transform:translateX(-50%);
+    background:rgba(220,70,70,0.15); border:0.5px solid rgba(220,70,70,0.35);
+    color:#f09090; padding:7px 18px; border-radius:6px;
+    font-size:11px; letter-spacing:0.05em;
+    z-index:30; display:none; white-space:nowrap;
+  }
+
+  #bottombar {
+    height:36px; display:flex; align-items:center; justify-content:space-between;
+    padding:0 20px;
+    border-top:0.5px solid var(--border);
+    background:rgba(22,17,23,0.95);
+    flex-shrink:0; z-index:20;
+  }
+  #bottombar span { font-size:10px; color:var(--text-dim); letter-spacing:0.05em; }
 </style>
 </head>
 <body>
 <div id="app">
+
   <div id="topbar">
     <div id="logo">ALIAS 3D VIEWER</div>
+    <div class="div"></div>
+    <div id="model-name">Audi R8 — Surface Boundary Inspection Mode</div>
     <div id="btn-group">
+      <div id="env-dots">
+        <div class="edot on" style="background:#16171d;" data-env="sky" title="스카이 모드"></div>
+        <div class="edot" style="background:#e6e4e0;" data-env="light" title="라이트 스튜디오"></div>
+        <div class="edot" style="background:#07070a;" data-env="dark" title="다크 몽환"></div>
+      </div>
+      <div class="div" style="margin:0 2px;"></div>
       <button class="btn on" id="btn-auto">AUTO ROT</button>
+      <button class="btn" id="btn-patch">PATCH LINE</button>
       <button class="btn" id="btn-reset">RESET</button>
+      <button class="btn" id="btn-shot">SCREENSHOT</button>
     </div>
   </div>
-  <div id="canvas-wrap"><canvas id="three-canvas"></canvas></div>
+
+  <div id="canvas-wrap">
+    <canvas id="three-canvas"></canvas>
+
+    <div id="loading">
+      <div id="load-title">AUDI R8</div>
+      <div id="load-label">LOADING COMPRESSED MODEL...</div>
+      <div id="load-track"><div id="load-fill"></div></div>
+    </div>
+
+    <div id="hud">
+      좌클릭 드래그 — 카메라 회전 (수직 반전)<br>
+      우클릭 드래그 / 마우스 휠 — 줌 인/아웃<br>
+      마우스 오버 — 서피스 바운더리 체크 (파란색 하이라이트)
+    </div>
+    <div id="err"></div>
+  </div>
+
+  <div id="bottombar">
+    <span>Powered by Three.js & Draco Compression</span>
+    <span>ALIAS Surface Modeling Practice</span>
+  </div>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -36,93 +150,380 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script>
 (function () {
-  let scene, camera, renderer, model;
-  let autoRot = true;
-  const orb = { theta: 0.5, phi: 1.05, radius: 5, target: new THREE.Vector3(0, 0, 0) };
+  let scene, camera, renderer;
+  let model = null, edgeGroup = null;
+  let autoRot = true, showPatch = false, envKey = 'sky';
+
+  // 레이캐스팅(마우스 오버 인터랙션)용 제어 변수
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+  let intersectedMesh = null;
+  let originalMaterialColor = new THREE.Color();
+  let originalMaterialEmissive = new THREE.Color();
+
+  const ENVS = {
+    sky: { 
+      bg: 0x16171d, 
+      amb: 0.45,
+      lights: [
+        { pos: [5, 12, 5], col: 0xffffff, int: 2.0 },
+        { pos: [-6, 4, -5], col: 0x9fb3c8, int: 1.2 },
+        { pos: [0, -8, 0], col: 0x473f35, int: 0.6 }
+      ]
+    },
+    light: { 
+      bg: 0xe6e4e0, 
+      amb: 0.70,
+      lights: [
+        { pos: [4, 10, 4], col: 0xffffff, int: 1.5 },
+        { pos: [-4, 3, -4], col: 0xded6cb, int: 0.7 },
+        { pos: [0, -6, 0], col: 0xffffff, int: 0.3 }
+      ]
+    },
+    dark: { 
+      bg: 0x07070a, 
+      amb: 0.15,
+      lights: [
+        { pos: [3, 6, 3], col: 0xe5ceb8, int: 1.8 },
+        { pos: [-5, 2, -3], col: 0x53667c, int: 1.0 },
+        { pos: [0, 6, -5], col: 0xffffff, int: 0.6 }
+      ]
+    }
+  };
+
+  const canvasEl  = document.getElementById('three-canvas');
+  const wrap      = document.getElementById('canvas-wrap');
+  const loadEl    = document.getElementById('loading');
+  const loadFill  = document.getElementById('load-fill');
+  const errEl     = document.getElementById('err');
+  const btnAuto   = document.getElementById('btn-auto');
+  const btnPatch  = document.getElementById('btn-patch');
+  const btnReset  = document.getElementById('btn-reset');
+  const btnShot   = document.getElementById('btn-shot');
+
+  let ambLight, dynamicLights = [];
+  
+  const orb = { 
+    theta: 0.5, 
+    phi: 1.05, 
+    radius: 5, 
+    target: new THREE.Vector3(0, 0, 0) 
+  };
 
   function init() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x16171d);
-    
-    camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
-    renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('three-canvas'), antialias: true });
-    renderer.setPixelRatio(1.2);
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    try {
+      if (typeof THREE === 'undefined') { showErr('엔진 로드 실패'); return; }
+      
+      scene = new THREE.Scene();
+      const W = wrap.clientWidth || window.innerWidth;
+      const H = wrap.clientHeight || window.innerHeight;
+      camera = new THREE.PerspectiveCamera(40, W / H, 0.01, 2000);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const dl = new THREE.DirectionalLight(0xffffff, 1.5);
-    dl.position.set(5, 10, 5);
-    scene.add(dl);
+      renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(W, H);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      
+      renderer.outputColorSpace = 'srgb';
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
 
-    loadGLB('audi.glb');
-    animate();
-    bindEvents();
+      ambLight = new THREE.AmbientLight(0xffffff, 0.4);
+      scene.add(ambLight);
+
+      for (let i = 0; i < 3; i++) {
+        let dl = new THREE.DirectionalLight(0xffffff, 1.0);
+        if(i === 0) {
+          dl.castShadow = true;
+          dl.shadow.mapSize.width = 2048;
+          dl.shadow.mapSize.height = 2048;
+          dl.shadow.bias = -0.0002;
+        }
+        scene.add(dl);
+        dynamicLights.push(dl);
+      }
+
+      applyEnv();
+      updateCamera();
+      animate();
+      onResize();
+      window.addEventListener('resize', onResize);
+      bindOrbit();
+
+      // 마우스 위치 검출 이벤트 등록
+      window.addEventListener('mousemove', onMouseMove, false);
+
+      // 🛠️ 파일 로딩 경로를 audi.glb 로 업데이트 완료
+      loadGLB('audi.glb');
+    } catch (e) {
+      console.error(e);
+      showErr('뷰어 초기화 실패');
+    }
   }
 
-  function loadGLB(path) {
-    const loader = new THREE.GLTFLoader();
-    const draco = new THREE.DRACOLoader();
-    draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-    loader.setDRACOLoader(draco);
+  function applyEnv() {
+    const e = ENVS[envKey];
+    if(scene) scene.background = new THREE.Color(e.bg);
+    if(ambLight) ambLight.intensity = e.amb;
+    
+    dynamicLights.forEach((dl, idx) => {
+      if(e.lights[idx]) {
+        dl.position.set(...e.lights[idx].pos);
+        dl.color.set(e.lights[idx].col);
+        dl.intensity = e.lights[idx].int;
+        dl.visible = true;
+      } else {
+        dl.visible = false;
+      }
+    });
+  }
 
-    loader.load(path, gltf => {
-      model = gltf.scene;
-      
-      // ⚡ 모델 자동 정렬 및 중심점 이동 로직
-      const box = new THREE.Box3().setFromObject(model);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
-      
-      model.position.sub(center); // 모델 중심을 0,0,0으로
-      model.scale.setScalar(5 / maxDim); // 화면에 꽉 차게 스케일 조정
-      
-      scene.add(model);
-      updateCamera();
+  function setupModelMaterials(root) {
+    root.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+        if (child.material) {
+          child.material.side = THREE.DoubleSide;
+        }
+      }
     });
   }
 
   function updateCamera() {
+    if(!camera) return;
     const { theta, phi, radius, target } = orb;
+    const sp = Math.sin(phi);
+    
     camera.position.set(
-      radius * Math.sin(phi) * Math.sin(theta),
-      radius * Math.cos(phi),
-      radius * Math.sin(phi) * Math.cos(theta)
+      radius * sp * Math.sin(theta) + target.x,
+      radius * Math.cos(phi)        + target.y,
+      radius * sp * Math.cos(theta) + target.z
     );
     camera.lookAt(target);
   }
 
-  function animate() {
-    requestAnimationFrame(animate);
-    if (autoRot && model) model.rotation.y += 0.002;
-    renderer.render(scene, camera);
+  function onMouseMove(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   }
 
-  function bindEvents() {
-    document.getElementById('btn-auto').addEventListener('click', (e) => {
-      autoRot = !autoRot;
-      e.target.classList.toggle('on', autoRot);
-    });
+  function checkRaycast() {
+    if (!model) return;
 
-    document.getElementById('btn-reset').addEventListener('click', () => {
-      orb.radius = 5; orb.theta = 0.5; orb.phi = 1.05;
-      if(model) model.rotation.set(0,0,0);
-      updateCamera();
-    });
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(model.children, true);
 
-    window.addEventListener('wheel', e => {
-      orb.radius = Math.max(0.5, Math.min(50, orb.radius + e.deltaY * 0.005));
+    if (intersects.length > 0) {
+      const topMesh = intersects[0].object;
+
+      if (topMesh.isMesh && intersectedMesh !== topMesh) {
+        resetIntersected();
+        intersectedMesh = topMesh;
+        
+        if (intersectedMesh.material) {
+          originalMaterialColor.copy(intersectedMesh.material.color);
+          if (intersectedMesh.material.emissive) {
+            originalMaterialEmissive.copy(intersectedMesh.material.emissive);
+          }
+
+          // 마우스 오버 시 선명한 파란색 하이라이트 융합
+          intersectedMesh.material.color.setHex(0x2277ff);
+          if (intersectedMesh.material.emissive) {
+            intersectedMesh.material.emissive.setHex(0x0a1a44);
+          }
+        }
+      }
+    } else {
+      resetIntersected();
+    }
+  }
+
+  function resetIntersected() {
+    if (intersectedMesh && intersectedMesh.material) {
+      intersectedMesh.material.color.copy(originalMaterialColor);
+      if (intersectedMesh.material.emissive) {
+        intersectedMesh.material.emissive.copy(originalMaterialEmissive);
+      }
+      intersectedMesh = null;
+    }
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    checkRaycast();
+
+    if (autoRot && model) {
+      model.rotation.y += 0.002;
+      if (edgeGroup) edgeGroup.rotation.y = model.rotation.y;
+    }
+    if(renderer && scene && camera) renderer.render(scene, camera);
+  }
+
+  function onResize() {
+    if(!camera || !renderer || !wrap) return;
+    const W = wrap.clientWidth || window.innerWidth;
+    const H = wrap.clientHeight || window.innerHeight;
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    renderer.setSize(W, H);
+  }
+
+  function bindOrbit() {
+    let down = false; let activeMode = 0; let px = 0, py = 0;
+    
+    canvasEl.addEventListener('mousedown', e => {
+      down = true; px = e.clientX; py = e.clientY;
+      if (e.button === 1) activeMode = 1; 
+      else if (e.button === 2) activeMode = 2; 
+      else { activeMode = 0; autoRot = false; if(btnAuto) btnAuto.classList.remove('on'); }
+    });
+    
+    window.addEventListener('mouseup', () => { down = false; });
+    canvasEl.addEventListener('mousemove', e => {
+      if (!down) return;
+      const dx = e.clientX - px, dy = e.clientY - py;
+      px = e.clientX; py = e.clientY;
+      
+      if (activeMode === 1) { 
+        const offsetFactor = 0.0016 * orb.radius;
+        const vecRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        const vecUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+        orb.target.addScaledVector(vecRight, -dx * offsetFactor);
+        orb.target.addScaledVector(vecUp, dy * offsetFactor);
+      } else if (activeMode === 2) {
+        orb.radius = Math.max(0.2, Math.min(200, orb.radius + dy * 0.015));
+      } else { 
+        orb.theta -= dx * 0.007; 
+        orb.phi = Math.max(0.05, Math.min(Math.PI - 0.05, orb.phi - dy * 0.007)); 
+      }
       updateCamera();
     });
     
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+    canvasEl.addEventListener('wheel', e => {
+      e.preventDefault();
+      orb.radius = Math.max(0.2, Math.min(200, orb.radius + e.deltaY * 0.012));
+      updateCamera();
+    }, { passive: false });
+    canvasEl.addEventListener('contextmenu', e => e.preventDefault());
+  }
+
+  function loadGLB(path) {
+    let prog = 0;
+    const ticker = setInterval(() => { prog = Math.min(prog + 4, 90); if(loadFill) loadFill.style.width = prog + '%'; }, 100);
+
+    const loader = new THREE.GLTFLoader();
+    const dracoLoader = new THREE.DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+    loader.setDRACOLoader(dracoLoader);
+
+    loader.load(path, gltf => {
+      clearInterval(ticker);
+      if(loadFill) loadFill.style.width = '100%';
+
+      model = gltf.scene;
+      setupModelMaterials(model);
+
+      const box  = new THREE.Box3().setFromObject(model);
+      const ctr  = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxD = Math.max(size.x, size.y, size.z);
+      const sc   = 3.5 / maxD;
+      
+      model.position.sub(ctr).multiplyScalar(sc);
+      model.scale.setScalar(sc);
+      scene.add(model);
+
+      orb.radius = 5; orb.target.set(0, 0, 0); orb.theta = 0.5; orb.phi = 1.05;
+      updateCamera();
+
+      buildEdges(model);
+      setTimeout(() => { if(loadEl) loadEl.classList.add('hidden'); }, 300);
+
+    }, xhr => {
+      if (xhr.total && loadFill) { prog = Math.round(xhr.loaded / xhr.total * 90); loadFill.style.width = prog + '%'; }
+    }, err => {
+      clearInterval(ticker);
+      console.error(err);
+      showErr('모델 로드 실패: 레포지토리 내 파일 형식을 다시 확인해 주세요.');
     });
   }
 
-  init();
+  function buildEdges(root) {
+    if (edgeGroup) { scene.remove(edgeGroup); edgeGroup = null; }
+    edgeGroup = new THREE.Group();
+
+    root.traverse(child => {
+      if (!child.isMesh) return;
+      
+      const edges = new THREE.EdgesGeometry(child.geometry, 15);
+      
+      // 검은 검정색 + 4배 이상 강화된 선명한 패치라인 세팅
+      const mat = new THREE.LineBasicMaterial({ 
+        color: 0x000000,
+        transparent: false,
+        linewidth: 8,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2
+      });
+      
+      const lines = new THREE.LineSegments(edges, mat);
+      lines.renderOrder = 9999;
+      lines.position.copy(child.position);
+      lines.rotation.copy(child.rotation);
+      lines.scale.copy(child.scale);
+      edgeGroup.add(lines);
+    });
+
+    edgeGroup.position.copy(root.position);
+    edgeGroup.rotation.copy(root.rotation);
+    edgeGroup.scale.copy(root.scale);
+    edgeGroup.visible = showPatch;
+    scene.add(edgeGroup);
+  }
+
+  if(btnAuto) btnAuto.addEventListener('click', () => { autoRot = !autoRot; btnAuto.classList.toggle('on', autoRot); });
+  if(btnPatch) btnPatch.addEventListener('click', () => {
+    showPatch = !showPatch;
+    btnPatch.classList.toggle('on', showPatch);
+    if (edgeGroup) edgeGroup.visible = showPatch;
+  });
+  
+  if(btnReset) btnReset.addEventListener('click', () => {
+    if (!model) return;
+    resetIntersected();
+    orb.radius = 5; orb.target.set(0, 0, 0); orb.theta = 0.5; orb.phi = 1.05;
+    model.rotation.set(0, 0, 0);
+    if (edgeGroup) edgeGroup.rotation.set(0, 0, 0);
+    updateCamera();
+    autoRot = true; if(btnAuto) btnAuto.classList.add('on');
+  });
+  
+  if(btnShot) btnShot.addEventListener('click', () => {
+    if(!renderer || !scene || !camera) return;
+    resetIntersected();
+    renderer.render(scene, camera);
+    const a = document.createElement('a');
+    a.download = 'audi_r8_inspection.png';
+    a.href = canvasEl.toDataURL('image/png');
+    a.click();
+  });
+
+  document.querySelectorAll('.edot').forEach(dot => {
+    dot.addEventListener('click', function () {
+      document.querySelectorAll('.edot').forEach(d => d.classList.remove('on'));
+      this.classList.add('on');
+      envKey = this.dataset.env;
+      applyEnv();
+    });
+  });
+
+  function showErr(msg) { if(errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') { init(); }
+  else { document.addEventListener('DOMContentLoaded', init); }
 })();
 </script>
 </body>
