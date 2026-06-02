@@ -295,19 +295,22 @@
 
     const mergedGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries(geometries, false);
     
-    // 🛠️ [라인 굵기 및 선명도 균일화 핵심 수정]
-    // depthTest: false 설정을 통해 어떤 가려짐이나 면 깊이 왜곡 없이 무조건 스크린 최상단에 투영하고,
-    // 렌더오더(renderOrder)를 강제로 올려 렌더링 파이프라인에서 완벽하게 독립시킵니다.
+    // 🛠️ [반대편 투과 차단 및 두께 균일화 핵심 수정]
+    // 1. depthTest를 다시 true로 켜서 차체 스킨에 가려진 반대쪽 와이어프레임이 보이는 현상을 완벽히 차단합니다.
+    // 2. 대신 근경/원경 및 좌우 투영 각도에 따라 선이 흐려지거나 묻히는 문제를 해결하기 위해,
+    //    정밀 지오메트리 전용 깊이 바이어스(polygonOffset) 설정을 최대화하여 표면 선명도를 유지합니다.
     const mat = new THREE.LineBasicMaterial({ 
       color: 0x111317,
       transparent: true,
       opacity: 0.85,
-      depthTest: false,
-      depthWrite: false
+      depthTest: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2.0,
+      polygonOffsetUnits: -4.0
     });
     
     mergedEdgeLine = new THREE.LineSegments(mergedGeometry, mat);
-    mergedEdgeLine.renderOrder = 999; 
     mergedEdgeLine.visible = showPatch;
     
     scene.add(mergedEdgeLine);
