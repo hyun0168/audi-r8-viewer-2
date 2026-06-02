@@ -126,8 +126,8 @@
   let currentShaderMode = 'studio'; 
 
   let raycaster, mouse;
-  let activeHighlightMesh = null; // 면 하이라이트 추적 노드
-  const patchHighlightMap = new Map(); // 개별 패치 면 오브젝트 바구니
+  let activeHighlightMesh = null; 
+  const patchHighlightMap = new Map(); 
 
   const canvasEl = document.getElementById('three-canvas');
   const wrap = document.getElementById('canvas-wrap');
@@ -219,9 +219,7 @@
     const ticker = setInterval(() => { prog = Math.min(prog + 4, 85); if(loadFill) loadFill.style.width = prog + '%'; }, 60);
 
     const loader = new THREE.GLTFLoader();
-    const dracoLoader = new THREE.DRACOLoader();
-    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
-    loader.setDRACOLoader(dracoLoader);
+    // 무압축 파일이므로 DRACOLoader 디코더 바인딩은 제외하여 초기 파싱 가속화
 
     loader.load(path, gltf => {
       clearInterval(ticker);
@@ -240,6 +238,8 @@
       
       model.position.sub(ctr).multiplyScalar(sc);
       model.scale.setScalar(sc);
+      
+      // 🛠️ 오리지널 GLB의 좌표계 스케일 정규화 행렬을 하위 노드까지 완전 강제 동기화
       model.updateMatrixWorld(true);
 
       buildMergedPatchLines(model);
@@ -263,21 +263,19 @@
     
     const geometries = [];
 
-    // 🛠️ [변경 핵심] 알리아스 오리지널 면 선택 감성을 재현한 반사광 없는 반투명 블루 재질
     const faceHighlightMat = new THREE.MeshBasicMaterial({
-      color: 0x0066ff,        // 선명한 알리아스 전용 셀렉션 블루
+      color: 0x0066ff,        
       transparent: true,
-      opacity: 0.35,          // 아래 베이스 쉐이딩 면이 은은하게 비치도록 투명도 세팅
+      opacity: 0.35,          
       side: THREE.DoubleSide,
-      polygonOffset: true,    // 원래 메쉬 위에 달라붙을 때 지글거리는 격자 현상(Z-Fighting) 완전 방지
-      polygonOffsetFactor: -2.0,
-      polygonOffsetUnits: -2.0
+      polygonOffset: true,    
+      polygonOffsetFactor: -4.0, // 오리지널 서피스보다 확실히 앞쪽 레이어로 렌더링 오프셋 부여
+      polygonOffsetUnits: -4.0
     });
 
     root.traverse(child => {
       if (!child.isMesh) return;
       
-      // 1. 선(Patch Line) 병합용 데이터 추출
       const edgeGeom = new THREE.EdgesGeometry(child.geometry, 16);
       child.updateMatrixWorld(true);
       
@@ -285,11 +283,14 @@
       cloneGeom.applyMatrix4(child.matrixWorld);
       geometries.push(cloneGeom);
       
-      // 2. 🛠️ [면 하이라이트 공정] 원본 메쉬 지오메트리를 그대로 사용해 하이라이트용 '면' 오브젝트 생성
-      const singleHighlightMesh = new THREE.Mesh(child.geometry, faceHighlightMat);
+      // 🛠️ [정밀도 수정 핵심 1] 부모-자식 간 변환 행렬 오류 방지를 위해 원본 지오메트리를 그대로 복사하되,
+      // 개별 하이라이트 메쉬의 행렬 기준점을 완벽하게 일치시킴
+      const singleHighlightMesh = new THREE.Mesh(child.geometry.clone(), faceHighlightMat);
+      
+      // 행렬 자동 업데이트를 잠그고 원본 차판 메쉬의 정밀 월드 매트릭스를 그대로 복사 이식
       singleHighlightMesh.matrixAutoUpdate = false;
       singleHighlightMesh.matrix.copy(child.matrixWorld);
-      singleHighlightMesh.visible = false; // 기본 상태는 숨김
+      singleHighlightMesh.visible = false; 
       
       scene.add(singleHighlightMesh);
       patchHighlightMap.set(child.uuid, singleHighlightMesh);
@@ -297,7 +298,6 @@
 
     if (geometries.length === 0) return;
 
-    // 전체 검은색 패치 라인 통합 컴파일
     const mergedGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries(geometries, false);
     const mat = new THREE.LineBasicMaterial({ 
       color: 0x050608,
@@ -314,9 +314,8 @@
     scene.add(mergedEdgeLine);
   }
 
-  // 🛠️ 마우스 위치 추적 및 실시간 면(Face) 전환 연산
   function onMouseMove(event) {
-    if (!model || !showPatch) return; // PATCH LINE 스위치가 On 상태일 때만 작동
+    if (!model || !showPatch) return; 
 
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -331,10 +330,16 @@
 
       if (targetFace) {
         if (activeHighlightMesh && activeHighlightMesh !== targetFace) {
-          activeHighlightMesh.visible = false; // 이전 면 하이라이트 소거
+          activeHighlightMesh.visible = false; 
         }
+        
+        // 🛠️ [정밀도 수정 핵심 2] 마우스가 닿는 순간 원본 오브젝트의 최신 월드 변화값(회전/스케일 등)을 
+        // 100% 실시간 추적하여 실시간으로 강제 오버랩 매핑 (무압축 오프셋 오차 완전 타파)
+        hitMesh.updateMatrixWorld(true);
+        targetFace.matrix.copy(hitMesh.matrixWorld);
+        
         activeHighlightMesh = targetFace;
-        activeHighlightMesh.visible = true;  // 마우스가 올라간 패치 면 활성화
+        activeHighlightMesh.visible = true;  
       }
     } else {
       if (activeHighlightMesh) {
@@ -388,7 +393,8 @@
         mergedEdgeLine.rotation.y = model.rotation.y;
       }
 
-      // 차가 스스로 회전할 때, 마우스가 올라가 있는 파란색 면 하이라이트도 궤적을 100% 동기화 추적
+      // 🛠️ [정밀도 수정 핵심 3] 자동 회전 중에도 맵에 들어있는 하이라이트 면들이 
+      // 원본 메쉬의 트랜스폼 매트릭스 변동점을 칼같이 동기화 추적하도록 설계
       if (activeHighlightMesh && showPatch) {
         patchHighlightMap.forEach((faceMesh, meshUuid) => {
           const originalMesh = model.getObjectByProperty('uuid', meshUuid);
@@ -456,7 +462,6 @@
       btnPatch.classList.toggle('on', showPatch); 
       if (mergedEdgeLine) mergedEdgeLine.visible = showPatch;
       
-      // PATCH LINE이 꺼지면 떠 있던 면 하이라이트도 즉시 강제 초기화
       if (!showPatch && activeHighlightMesh) {
         activeHighlightMesh.visible = false;
         activeHighlightMesh = null;
