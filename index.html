@@ -295,19 +295,19 @@
 
     const mergedGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries(geometries, false);
     
-    // 🛠️ [패치 라인 희미해짐 수정 핵심]
-    // polygonOffset과 오프셋 가중치를 더 공격적으로 설정하고 정밀 피드백 매핑을 부여하여,
-    // 원경이나 미세 굴곡면에서도 선이 차량 소스 메쉬 내부로 파묻히는 현상을 완벽히 차단합니다.
+    // 🛠️ [라인 굵기 및 선명도 균일화 핵심 수정]
+    // depthTest: false 설정을 통해 어떤 가려짐이나 면 깊이 왜곡 없이 무조건 스크린 최상단에 투영하고,
+    // 렌더오더(renderOrder)를 강제로 올려 렌더링 파이프라인에서 완벽하게 독립시킵니다.
     const mat = new THREE.LineBasicMaterial({ 
-      color: 0x050608,
+      color: 0x111317,
       transparent: true,
       opacity: 0.85,
-      polygonOffset: true,
-      polygonOffsetFactor: -8.0, 
-      polygonOffsetUnits: -8.0
+      depthTest: false,
+      depthWrite: false
     });
     
     mergedEdgeLine = new THREE.LineSegments(mergedGeometry, mat);
+    mergedEdgeLine.renderOrder = 999; 
     mergedEdgeLine.visible = showPatch;
     
     scene.add(mergedEdgeLine);
