@@ -32,7 +32,6 @@
   #logo { font-family:var(--sans); font-size:12px; font-weight:700; letter-spacing:0.2em; color:var(--accent); white-space:nowrap; }
   .div { width:0.5px; height:18px; background:var(--border); flex-shrink:0; }
   
-  /* 그룹별 버튼 컨테이너 */
   .control-section { display:flex; gap:4px; align-items:center; background:rgba(0,0,0,0.15); padding:3px; border-radius:6px; border:0.5px solid var(--border); }
   .section-label { font-size:9px; color:var(--text-dim); padding:0 5px; letter-spacing:0.05em; font-weight:500; white-space:nowrap; }
   
@@ -46,8 +45,15 @@
   .btn.on { background:rgba(196,181,165,0.15); color:var(--accent); font-weight:500; }
   
   #canvas-wrap { position:relative; flex:1; overflow:hidden; }
-  #three-canvas { display:block; width:100%; height:100%; cursor:grab; }
+  #three-canvas { display:block; width:100%; height:100%; cursor:grab; z-index: 1; position: relative; background: transparent; }
   #three-canvas:active { cursor:grabbing; }
+  
+  /* 🛠️ 정밀 그라데이션 배경을 위한 CSS 오버레이 */
+  #bg-gradient {
+    position: absolute; inset: 0; z-index: 0;
+    pointer-events: none; transition: background 0.4s ease;
+    background: #14151a; /* 기본 DARK */
+  }
   
   #info-overlay {
     position:absolute; bottom:20px; left:20px;
@@ -94,11 +100,13 @@
   </div>
   
   <div id="canvas-wrap">
+    <div id="bg-gradient"></div>
     <canvas id="three-canvas"></canvas>
+    
     <div id="info-overlay">
       <div>좌클릭 드래그 — 카메라 회전 (TURN)</div>
       <div>우클릭 드래그 / 휠 스크롤 — 확대 및 축소 (ZOOM)</div>
-      <div>상단 컨트롤 맵 — 실시간 재질 맵 변환 및 서피스 배경 동기화 필터 시스템</div>
+      <div>상단 컨트롤 맵 — 초고속 드로우콜 패치 엣지 및 그라데이션 환경 피드백 연동</div>
     </div>
     <div id="loading">
       <div id="load-title">LOADING DATA</div>
@@ -110,9 +118,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
+
 <script>
 (function () {
-  let scene, camera, renderer, model;
+  let scene, camera, renderer, model, mergedEdgeLine;
   let autoRot = true, showPatch = false, isInteracting = false;
   let currentShaderMode = 'studio'; 
 
@@ -120,33 +130,22 @@
   const wrap = document.getElementById('canvas-wrap');
   const loadEl = document.getElementById('loading');
   const loadFill = document.getElementById('load-fill');
+  const bgGradEl = document.getElementById('bg-gradient');
   
-  // 4가지 배경 컬러 정의
-  const bgColors = {
-    dark: new THREE.Color(0x14151a),
-    gray: new THREE.Color(0x5a5c66),
-    white: new THREE.Color(0xeeeeee),
-    sky: new THREE.Color(0xb4c6d6) // 그라데이션 및 탑스카이 연출용 베이스 블루 스카이 톤
+  // 4가지 배경 스타일에 맞춘 CSS 그라데이션 맵정의 (Shade Sky 노을빛 추가)
+  const bgStyles = {
+    dark: 'linear-gradient(to bottom, #14151a, #14151a)',
+    gray: 'linear-gradient(to bottom, #5a5c66, #3a3b42)',
+    white: 'linear-gradient(to bottom, #eeeeee, #cccccc)',
+    sky: 'linear-gradient(to bottom, #1e528e, #e68a4b)' // 위: 파란색, 아래: 주황색 그라데이션
   };
 
-  // 재질 라이브러리 구성
   const shaders = {
-    // 1. STUDIO: 고광택 반사 메탈 실버 블루
     studio: new THREE.MeshStandardMaterial({ color: 0x728396, metalness: 0.65, roughness: 0.15, side: THREE.DoubleSide }),
-    
-    // 2. CLAY: 빛 반사량을 대폭 줄여 하얗게 타는 현상을 해결한 정밀 진흙 재질
-    clay: new THREE.MeshStandardMaterial({ 
-      color: 0x8c8070, 
-      metalness: 0.0,    // 메탈릭 요소를 완전히 배제하여 타는 현상 차단
-      roughness: 0.85,   // 거칠기를 크게 올려 빛을 넓고 부드럽게 분산
-      side: THREE.DoubleSide 
-    }),
-    
-    // 3. LAMBERT: 음영만 담백하게 표현해 하이라이트를 완전히 죽이고 순수 볼륨만 검증하는 회색 매트 재질
+    clay: new THREE.MeshStandardMaterial({ color: 0x8c8070, metalness: 0.0, roughness: 0.85, side: THREE.DoubleSide }),
     lambert: new THREE.MeshLambertMaterial({ color: 0x6e737a, side: THREE.DoubleSide })
   };
 
-  // 4. ZEBRA: 절차적 라인 쉐이더
   shaders.zebra = new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     vertexShader: `
@@ -177,18 +176,19 @@
 
   function init() {
     scene = new THREE.Scene();
-    scene.background = bgColors.dark; // 초기값 DARK 배경
     
+    // 🛠️ 그라데이션 오버레이 연동을 위해 렌더러 배경을 투명(Alpha) 처리
     const W = wrap.clientWidth;
     const H = wrap.clientHeight;
     camera = new THREE.PerspectiveCamera(36, W / H, 0.01, 1000);
 
-    renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, powerPreference: "high-performance" });
+    renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(W, H);
     renderer.outputColorSpace = 'srgb';
 
-    // 조명 세팅
+    bgGradEl.style.background = bgStyles.dark; // 초기값 DARK
+
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dl1 = new THREE.DirectionalLight(0xffffff, 1.6);
     dl1.position.set(8, 18, 8);
@@ -235,7 +235,8 @@
       model.scale.setScalar(sc);
       model.updateMatrixWorld(true);
 
-      buildPatchLines(model);
+      // 🛠️ 초고속 병합형 패치 라인 공정 실행
+      buildMergedPatchLines(model);
       
       scene.add(model);
       setTimeout(() => { if(loadEl) loadEl.classList.add('hidden'); }, 150);
@@ -251,35 +252,44 @@
     });
   }
 
-  function buildPatchLines(root) {
+  // 🛠️ 렉을 완벽하게 없애는 패치 라인 통합 렌더링 알고리즘
+  function buildMergedPatchLines(root) {
+    if (mergedEdgeLine) { scene.remove(mergedEdgeLine); }
+    
+    const geometries = [];
+
+    // 1단계: 분리된 모든 메쉬들의 엣지 지오메트리를 추출하여 로컬 트랜스폼 적용
     root.traverse(child => {
       if (!child.isMesh) return;
       
-      const edges = new THREE.EdgesGeometry(child.geometry, 16); 
-      const mat = new THREE.LineBasicMaterial({ 
-        color: 0x050608,
-        transparent: true,
-        opacity: 0.85,
-        polygonOffset: true,
-        polygonOffsetFactor: -1.5,
-        polygonOffsetUnits: -1.5
-      });
+      const edgeGeom = new THREE.EdgesGeometry(child.geometry, 16);
       
-      const lines = new THREE.LineSegments(edges, mat);
-      child.add(lines);
+      // 월드 매트릭스를 지오메트리에 직접 미리 구워넣음 (행렬 연산 일원화)
+      child.updateMatrixWorld(true);
+      edgeGeom.applyMatrix4(child.matrixWorld);
+      
+      geometries.push(edgeGeom);
     });
-    togglePatchVisibility(showPatch);
-  }
 
-  function togglePatchVisibility(visible) {
-    if (!model) return;
-    model.traverse(child => {
-      if (child.isMesh) {
-        child.children.forEach(c => {
-          if (c.isLineSegments) c.visible = visible;
-        });
-      }
+    if (geometries.length === 0) return;
+
+    // 2단계: 수백 개의 선 데이터를 단 1개의 버퍼 지오메트리로 초고속 컴파일 (핵심 최적화)
+    const mergedGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries(geometries, false);
+    
+    const mat = new THREE.LineBasicMaterial({ 
+      color: 0x050608,
+      transparent: true,
+      opacity: 0.85,
+      polygonOffset: true,
+      polygonOffsetFactor: -1.5,
+      polygonOffsetUnits: -1.5
     });
+    
+    // 3단계: 단 하나의 메쉬로 등록하므로 드로우콜이 1로 고정됨
+    mergedEdgeLine = new THREE.LineSegments(mergedGeometry, mat);
+    mergedEdgeLine.visible = showPatch;
+    
+    scene.add(mergedEdgeLine);
   }
 
   function setupShaderButtons() {
@@ -300,7 +310,8 @@
       document.getElementById(`bg-${bg}`).addEventListener('click', e => {
         bgs.forEach(b => document.getElementById(`bg-${b}`).classList.remove('on'));
         e.target.classList.add('on');
-        scene.background = bgColors[bg];
+        // CSS 그라데이션 레이어 변경
+        bgGradEl.style.background = bgStyles[bg];
       });
     });
   }
@@ -320,6 +331,12 @@
     requestAnimationFrame(animate);
     if (autoRot && model && !isInteracting) {
       model.rotation.y += 0.0012;
+      model.updateMatrixWorld(true);
+      
+      // 🛠️ 차 전체가 돌 때 병합된 전체 패치선 라인 1개만 동기화 회전하므로 대단히 가벼움
+      if (mergedEdgeLine && showPatch) {
+        mergedEdgeLine.rotation.y = model.rotation.y;
+      }
     }
     renderer.render(scene, camera);
   }
@@ -377,11 +394,12 @@
     if(btnPatch) btnPatch.addEventListener('click', () => { 
       showPatch = !showPatch; 
       btnPatch.classList.toggle('on', showPatch); 
-      togglePatchVisibility(showPatch); 
+      if (mergedEdgeLine) mergedEdgeLine.visible = showPatch;
     });
     if(btnReset) btnReset.addEventListener('click', () => {
       orb.radius = 4.8; orb.theta = 0.5; orb.phi = 1.05; orb.target.set(0,0,0);
       if(model) { model.rotation.set(0,0,0); }
+      if(mergedEdgeLine) { mergedEdgeLine.rotation.set(0,0,0); }
       updateCamera(); autoRot = true; if(btnAuto) btnAuto.classList.add('on');
     });
   }
