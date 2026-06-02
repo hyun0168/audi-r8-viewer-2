@@ -48,11 +48,10 @@
   #three-canvas { display:block; width:100%; height:100%; cursor:grab; z-index: 1; position: relative; background: transparent; }
   #three-canvas:active { cursor:grabbing; }
   
-  /* 🛠️ 정밀 그라데이션 배경을 위한 CSS 오버레이 */
   #bg-gradient {
     position: absolute; inset: 0; z-index: 0;
     pointer-events: none; transition: background 0.4s ease;
-    background: #14151a; /* 기본 DARK */
+    background: #14151a;
   }
   
   #info-overlay {
@@ -106,7 +105,7 @@
     <div id="info-overlay">
       <div>좌클릭 드래그 — 카메라 회전 (TURN)</div>
       <div>우클릭 드래그 / 휠 스크롤 — 확대 및 축소 (ZOOM)</div>
-      <div>상단 컨트롤 맵 — 초고속 드로우콜 패치 엣지 및 그라데이션 환경 피드백 연동</div>
+      <div>마우스 오버 — 개별 서피스 패치 블루 하이라이트 감지 검증</div>
     </div>
     <div id="loading">
       <div id="load-title">LOADING DATA</div>
@@ -126,18 +125,22 @@
   let autoRot = true, showPatch = false, isInteracting = false;
   let currentShaderMode = 'studio'; 
 
+  // 🛠️ 파란색 패치 하이라이트를 위한 전역 변수 세팅
+  let raycaster, mouse;
+  let activeHighlightLine = null;
+  const patchHighlightMap = new Map(); // 개별 지오메트리 라인 캐싱 바구니
+
   const canvasEl = document.getElementById('three-canvas');
   const wrap = document.getElementById('canvas-wrap');
   const loadEl = document.getElementById('loading');
   const loadFill = document.getElementById('load-fill');
   const bgGradEl = document.getElementById('bg-gradient');
   
-  // 4가지 배경 스타일에 맞춘 CSS 그라데이션 맵정의 (Shade Sky 노을빛 추가)
   const bgStyles = {
     dark: 'linear-gradient(to bottom, #14151a, #14151a)',
     gray: 'linear-gradient(to bottom, #5a5c66, #3a3b42)',
     white: 'linear-gradient(to bottom, #eeeeee, #cccccc)',
-    sky: 'linear-gradient(to bottom, #1e528e, #e68a4b)' // 위: 파란색, 아래: 주황색 그라데이션
+    sky: 'linear-gradient(to bottom, #1e528e, #e68a4b)'
   };
 
   const shaders = {
@@ -177,7 +180,6 @@
   function init() {
     scene = new THREE.Scene();
     
-    // 🛠️ 그라데이션 오버레이 연동을 위해 렌더러 배경을 투명(Alpha) 처리
     const W = wrap.clientWidth;
     const H = wrap.clientHeight;
     camera = new THREE.PerspectiveCamera(36, W / H, 0.01, 1000);
@@ -187,7 +189,7 @@
     renderer.setSize(W, H);
     renderer.outputColorSpace = 'srgb';
 
-    bgGradEl.style.background = bgStyles.dark; // 초기값 DARK
+    bgGradEl.style.background = bgStyles.dark;
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dl1 = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -197,6 +199,10 @@
     dl2.position.set(-8, 6, -8);
     scene.add(dl2);
 
+    // 🛠️ 마우스 레이캐스터 엔진 초기화
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
     updateCamera();
     animate();
     
@@ -204,6 +210,10 @@
     bindControls();
     setupShaderButtons();
     setupBackgroundButtons();
+    
+    // 🛠️ 마우스 움직임 감지 이벤트 리스너 등록
+    window.addEventListener('mousemove', onMouseMove, false);
+    
     loadGLB('audi.glb');
   }
 
@@ -235,7 +245,7 @@
       model.scale.setScalar(sc);
       model.updateMatrixWorld(true);
 
-      // 🛠️ 초고속 병합형 패치 라인 공정 실행
+      // 초고속 병합형 기본 패치 라인 생성 및 개별 하이라이트 라인 사전 캐싱 공정
       buildMergedPatchLines(model);
       
       scene.add(model);
@@ -252,30 +262,48 @@
     });
   }
 
-  // 🛠️ 렉을 완벽하게 없애는 패치 라인 통합 렌더링 알고리즘
   function buildMergedPatchLines(root) {
     if (mergedEdgeLine) { scene.remove(mergedEdgeLine); }
     
     const geometries = [];
 
-    // 1단계: 분리된 모든 메쉬들의 엣지 지오메트리를 추출하여 로컬 트랜스폼 적용
+    // 하이라이트용 전용 블루 재질
+    const highlightMat = new THREE.LineBasicMaterial({
+      color: 0x2288ff, // 알리아스 기본 스카이블루 하이라이트 컬러 고유값
+      linewidth: 2,
+      transparent: true,
+      opacity: 0.95,
+      polygonOffset: true,
+      polygonOffsetFactor: -2.0, // 기본 검정 패치 라인보다도 약간 더 앞에 그리도록 설계
+      polygonOffsetUnits: -2.0
+    });
+
     root.traverse(child => {
       if (!child.isMesh) return;
       
       const edgeGeom = new THREE.EdgesGeometry(child.geometry, 16);
       
-      // 월드 매트릭스를 지오메트리에 직접 미리 구워넣음 (행렬 연산 일원화)
+      // 월드 매트릭스 동기화 복사
       child.updateMatrixWorld(true);
-      edgeGeom.applyMatrix4(child.matrixWorld);
       
-      geometries.push(edgeGeom);
+      // 🛠️ [렉 차단 핵심 1] 전체 드로잉용 지오메트리 복사본 생성
+      const cloneGeom = edgeGeom.clone();
+      cloneGeom.applyMatrix4(child.matrixWorld);
+      geometries.push(cloneGeom);
+      
+      // 🛠️ [렉 차단 핵심 2] 마우스 오버 시 즉각 꺼내 쓸 수 있도록 개별 독립 라인을 미리 생성해 맵에 매핑 (실시간 New 연산 배제)
+      const singleHighlightLine = new THREE.LineSegments(edgeGeom, highlightMat);
+      singleHighlightLine.matrixAutoUpdate = false;
+      singleHighlightLine.matrix.copy(child.matrixWorld);
+      singleHighlightLine.visible = false; // 기본적으론 숨김처리
+      
+      scene.add(singleHighlightLine);
+      patchHighlightMap.set(child.uuid, singleHighlightLine);
     });
 
     if (geometries.length === 0) return;
 
-    // 2단계: 수백 개의 선 데이터를 단 1개의 버퍼 지오메트리로 초고속 컴파일 (핵심 최적화)
     const mergedGeometry = THREE.BufferGeometryUtils.mergeBufferGeometries(geometries, false);
-    
     const mat = new THREE.LineBasicMaterial({ 
       color: 0x050608,
       transparent: true,
@@ -285,11 +313,43 @@
       polygonOffsetUnits: -1.5
     });
     
-    // 3단계: 단 하나의 메쉬로 등록하므로 드로우콜이 1로 고정됨
     mergedEdgeLine = new THREE.LineSegments(mergedGeometry, mat);
     mergedEdgeLine.visible = showPatch;
     
     scene.add(mergedEdgeLine);
+  }
+
+  // 🛠️ 실시간 마우스 오버 서피스 패치 추적 (Raycasting) 알고리즘
+  function onMouseMove(event) {
+    if (!model || !showPatch) return; // PATCH LINE이 켜져 있을 때만 연산 작동하도록 제한
+
+    // 캔버스 영역 기준으로 마우스 좌표 정규화 (-1 ~ +1)
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    // 가벼운 충돌 판정을 위해 최적 노드 검사 진행
+    const intersects = raycaster.intersectObjects(model.children, true);
+
+    if (intersects.length > 0) {
+      const hitMesh = intersects[0].object;
+      const targetLine = patchHighlightMap.get(hitMesh.uuid);
+
+      if (targetLine) {
+        if (activeHighlightLine && activeHighlightLine !== targetLine) {
+          activeHighlightLine.visible = false; // 이전 하이라이트 끄기
+        }
+        activeHighlightLine = targetLine;
+        activeHighlightLine.visible = true;  // 새 패치 하이라이트 켜기
+      }
+    } else {
+      if (activeHighlightLine) {
+        activeHighlightLine.visible = false;
+        activeHighlightLine = null;
+      }
+    }
   }
 
   function setupShaderButtons() {
@@ -310,7 +370,6 @@
       document.getElementById(`bg-${bg}`).addEventListener('click', e => {
         bgs.forEach(b => document.getElementById(`bg-${b}`).classList.remove('on'));
         e.target.classList.add('on');
-        // CSS 그라데이션 레이어 변경
         bgGradEl.style.background = bgStyles[bg];
       });
     });
@@ -333,9 +392,18 @@
       model.rotation.y += 0.0012;
       model.updateMatrixWorld(true);
       
-      // 🛠️ 차 전체가 돌 때 병합된 전체 패치선 라인 1개만 동기화 회전하므로 대단히 가벼움
       if (mergedEdgeLine && showPatch) {
         mergedEdgeLine.rotation.y = model.rotation.y;
+      }
+
+      // 🛠️ 자동 회전 시 활성화된 블루 하이라이트 선의 트랜스폼도 매트릭스 동기화 추적
+      if (activeHighlightLine && showPatch) {
+        patchHighlightMap.forEach((line, meshUuid) => {
+          const originalMesh = model.getObjectByProperty('uuid', meshUuid);
+          if (originalMesh) {
+            line.matrix.copy(originalMesh.matrixWorld);
+          }
+        });
       }
     }
     renderer.render(scene, camera);
@@ -395,11 +463,16 @@
       showPatch = !showPatch; 
       btnPatch.classList.toggle('on', showPatch); 
       if (mergedEdgeLine) mergedEdgeLine.visible = showPatch;
+      if (!showPatch && activeHighlightLine) {
+        activeHighlightLine.visible = false;
+        activeHighlightLine = null;
+      }
     });
     if(btnReset) btnReset.addEventListener('click', () => {
       orb.radius = 4.8; orb.theta = 0.5; orb.phi = 1.05; orb.target.set(0,0,0);
       if(model) { model.rotation.set(0,0,0); }
       if(mergedEdgeLine) { mergedEdgeLine.rotation.set(0,0,0); }
+      if(activeHighlightLine) { activeHighlightLine.visible = false; activeHighlightLine = null; }
       updateCamera(); autoRot = true; if(btnAuto) btnAuto.classList.add('on');
     });
   }
